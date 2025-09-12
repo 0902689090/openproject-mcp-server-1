@@ -17,35 +17,61 @@ A Model Context Protocol (MCP) server that provides seamless integration with [O
 
 ## Prerequisites
 
-- Python 3.8 or higher
+- Python 3.10 or higher
+- [uv](https://docs.astral.sh/uv/) (fast Python package manager)
 - An OpenProject instance (cloud or self-hosted)
 - OpenProject API key (generated from your user profile)
 
 ## Installation
 
-1. Clone the repository:
+### 1. Install uv (if not already installed)
+
+**macOS/Linux:**
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+**Windows:**
+```powershell
+powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
+
+**Alternative (using pip):**
+```bash
+pip install uv
+```
+
+### 2. Clone and Setup the Project
+
 ```bash
 git clone https://github.com/yourusername/openproject-mcp.git
 cd openproject-mcp
 ```
 
-2. Create a virtual environment:
+### 3. Create Virtual Environment and Install Dependencies
+
 ```bash
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+# Create virtual environment and install dependencies in one command
+uv sync
 ```
 
-3. Install dependencies:
+**Alternative (manual steps):**
 ```bash
-pip install -r requirements.txt
+# Create virtual environment
+uv venv
+
+# Install dependencies
+uv pip install -r requirements.txt
 ```
 
-4. Copy the environment template:
+### 4. Configure Environment
+
 ```bash
-cp .env.example .env
+# Copy the environment template
+cp env_example.txt .env
 ```
 
-5. Edit `.env` and add your OpenProject configuration:
+Edit `.env` and add your OpenProject configuration:
 ```env
 OPENPROJECT_URL=https://your-instance.openproject.com
 OPENPROJECT_API_KEY=your-api-key-here
@@ -75,7 +101,17 @@ OPENPROJECT_API_KEY=your-api-key-here
 
 ### Running the Server
 
+**Using uv (recommended):**
 ```bash
+uv run python openproject-mcp.py
+```
+
+**Alternative (manual activation):**
+```bash
+# Activate virtual environment
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+
+# Run the server
 python openproject-mcp.py
 ```
 
@@ -92,12 +128,32 @@ Add this configuration to your Claude Desktop config file:
 {
   "mcpServers": {
     "openproject": {
-      "command": "python",
-      "args": ["path/to/openproject-mcp.py"]
+      "command": "/path/to/your/project/.venv/bin/python",
+      "args": ["/path/to/your/project/openproject-mcp.py"]
     }
   }
 }
 ```
+
+**Note:** Replace `/path/to/your/project/` with the actual path to your project directory.
+
+**Alternative with uv (if uv is in your system PATH):**
+```json
+{
+  "mcpServers": {
+    "openproject": {
+      "command": "uv",
+      "args": ["run", "python", "/path/to/your/project/openproject-mcp.py"]
+    }
+  }
+}
+```
+
+**Why use the direct Python path?**
+The direct Python path approach is more reliable because:
+- It doesn't require `uv` to be in the system PATH
+- It avoids potential issues with `uv run` trying to install the project as a package
+- It's simpler and more straightforward for MCP server configurations
 
 ### Available Tools
 
@@ -161,17 +217,43 @@ Create a new task in project 5 titled "Update documentation" with type ID 1
 
 ## Development
 
+### Setting up Development Environment
+
+```bash
+# Install development dependencies
+uv sync --extra dev
+
+# Or install manually
+uv pip install -e ".[dev]"
+```
+
 ### Running Tests
 
 ```bash
-pytest tests/
+uv run pytest tests/
 ```
 
 ### Code Formatting
 
 ```bash
-black openproject-mcp.py
-flake8 openproject-mcp.py
+# Format code
+uv run black openproject-mcp.py
+
+# Lint code
+uv run flake8 openproject-mcp.py
+```
+
+### Adding Dependencies
+
+```bash
+# Add a new dependency
+uv add package-name
+
+# Add a development dependency
+uv add --dev package-name
+
+# Update dependencies
+uv sync
 ```
 
 ## Troubleshooting
