@@ -2,11 +2,13 @@
 
 # OpenProject MCP Server
 
-A Model Context Protocol (MCP) server that provides seamless integration with [OpenProject](https://www.openproject.org/) API v3. This server enables LLM applications to interact with OpenProject for project management, work package tracking, and task creation.
+A Model Context Protocol (MCP) server built with **[FastMCP](https://github.com/jlowin/fastmcp)** that provides seamless integration with [OpenProject](https://www.openproject.org/) API v3. This server enables LLM applications to interact with OpenProject for project management, work package tracking, and task creation.
 
 ## Features
 
 - 🔌 **Full OpenProject API v3 Integration**
+- ⚡ **Built with FastMCP** - Modern, lightweight MCP framework
+- 🌐 **HTTP & Stdio Transports** - Flexible deployment options
 - 📋 **Project Management**: List and filter projects
 - 📝 **Work Package Management**: Create, list, and filter work packages
 - 🏷️ **Type Management**: List available work package types
@@ -14,6 +16,7 @@ A Model Context Protocol (MCP) server that provides seamless integration with [O
 - 🌐 **Proxy Support**: Optional HTTP proxy configuration
 - 🚀 **Async Operations**: Built with modern async/await patterns
 - 📊 **Comprehensive Logging**: Configurable logging levels
+- 🎯 **40+ MCP Tools**: Complete OpenProject automation
 
 ## Prerequisites
 
@@ -99,11 +102,86 @@ OPENPROJECT_API_KEY=your-api-key-here
 
 ## Usage
 
+### Transport Modes
+
+This server supports two transport modes:
+- **HTTP Transport** (default): REST API with JSON-RPC - recommended for production
+- **Stdio Transport**: For local development or direct integration with Claude Desktop
+
+**Why HTTP instead of SSE?**
+- ✅ Better compatibility with most HTTP clients
+- ✅ Simpler implementation and testing (use curl, Postman, etc.)
+- ✅ Stateless and easy to scale
+- ✅ Works well through proxies and firewalls
+- ✅ Standard REST API patterns
+
+#### HTTP Transport (Default)
+
+**1. Configure environment:**
+```env
+USE_HTTP_TRANSPORT=true
+HTTP_HOST=0.0.0.0
+HTTP_PORT=8000
+```
+
+**2. Run the server:**
+```bash
+uv run python -m openproject_mcp_server
+```
+
+**3. Available endpoints:**
+- Root: `http://localhost:8000/` - Server info
+- Health: `http://localhost:8000/health` - Health check
+- Tools: `http://localhost:8000/tools` - List available tools
+- MCP: `http://localhost:8000/mcp` (POST) - Main MCP JSON-RPC endpoint
+
+**4. Example usage with curl:**
+```bash
+# List available tools
+curl http://localhost:8000/tools
+
+# Call a tool via MCP protocol
+curl -X POST http://localhost:8000/mcp \
+  -H "Content-Type: application/json" \
+  -d '{
+    "method": "tools/call",
+    "params": {
+      "name": "list_projects",
+      "arguments": {"active_only": true}
+    }
+  }'
+```
+
+**5. Test the server:**
+```bash
+# Terminal 1: Run server
+uv run python -m openproject_mcp_server
+
+# Terminal 2: Run tests
+uv run python test_http.py
+```
+
+#### Stdio Transport
+
+**1. Configure environment:**
+```env
+USE_HTTP_TRANSPORT=false
+```
+
+**2. Run the server:**
+```bash
+uv run python -m openproject_mcp_server
+```
+
 ### Running the Server
 
 **Using uv (recommended):**
 ```bash
-uv run python openproject-mcp.py
+# Run with HTTP transport (default)
+uv run python -m openproject_mcp_server
+
+# Run with stdio transport
+USE_HTTP_TRANSPORT=false uv run python -m openproject_mcp_server
 ```
 
 **Alternative (manual activation):**
@@ -112,12 +190,12 @@ uv run python openproject-mcp.py
 source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 
 # Run the server
-python openproject-mcp.py
+python -m openproject_mcp_server
 ```
 
-**Note:** If you renamed the file from `openproject_mcp_server.py`, update your configuration accordingly.
-
 ### Integration with Claude Desktop
+
+#### For Stdio Transport:
 
 Add this configuration to your Claude Desktop config file:
 
@@ -129,13 +207,21 @@ Add this configuration to your Claude Desktop config file:
   "mcpServers": {
     "openproject": {
       "command": "/path/to/your/project/.venv/bin/python",
-      "args": ["/path/to/your/project/openproject-mcp.py"]
+      "args": ["-m", "openproject_mcp_server"],
+      "env": {
+        "USE_HTTP_TRANSPORT": "false"
+      }
     }
   }
 }
 ```
 
-**Note:** Replace `/path/to/your/project/` with the actual path to your project directory.
+#### For HTTP Transport:
+
+If your MCP client supports HTTP transport, configure it to connect to:
+```
+http://localhost:8000
+```
 
 **Alternative with uv (if uv is in your system PATH):**
 ```json
@@ -143,17 +229,14 @@ Add this configuration to your Claude Desktop config file:
   "mcpServers": {
     "openproject": {
       "command": "uv",
-      "args": ["run", "python", "/path/to/your/project/openproject-mcp.py"]
+      "args": ["run", "python", "-m", "openproject_mcp_server"],
+      "env": {
+        "USE_HTTP_TRANSPORT": "false"
+      }
     }
   }
 }
 ```
-
-**Why use the direct Python path?**
-The direct Python path approach is more reliable because:
-- It doesn't require `uv` to be in the system PATH
-- It avoids potential issues with `uv run` trying to install the project as a package
-- It's simpler and more straightforward for MCP server configurations
 
 ### Available Tools
 

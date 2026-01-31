@@ -1,4 +1,4 @@
-mcp
+fastmcp
 aiohttp
 python-dotenv
 certifi
