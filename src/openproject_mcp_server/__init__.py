@@ -68,6 +68,15 @@ class OpenProjectClient:
         credentials = f"apikey:{self.api_key}"
         return base64.b64encode(credentials.encode()).decode()
 
+    def _normalize_endpoint(self, href: str) -> str:
+        """Normalize API hrefs to relative /api/v3 endpoints for _request."""
+        endpoint = href
+        if endpoint.startswith(self.base_url):
+            endpoint = endpoint[len(self.base_url) :]
+        if endpoint.startswith("/api/v3"):
+            endpoint = endpoint[len("/api/v3") :]
+        return endpoint
+
     async def _request(
         self, method: str, endpoint: str, data: Optional[Dict] = None
     ) -> Dict:
@@ -133,11 +142,26 @@ class OpenProjectClient:
                         )
                         raise Exception(error_msg)
 
-                    return response_json
-
+                return response_json
             except aiohttp.ClientError as e:
                 logger.error(f"Network error: {str(e)}")
                 raise Exception(f"Network error accessing {url}: {str(e)}")
+
+    async def get_version_name(self, version_link: Optional[Dict]) -> Optional[str]:
+        """Resolve version name from a link, fetching the version if needed."""
+        if not version_link:
+            return None
+        if version_link.get("title"):
+            return version_link.get("title")
+        href = version_link.get("href")
+        if not href:
+            return None
+        endpoint = self._normalize_endpoint(href)
+        try:
+            version = await self._request("GET", endpoint)
+        except Exception:
+            return None
+        return version.get("name")
 
     def _format_error_message(self, status: int, response_text: str) -> str:
         """Format error message based on HTTP status code"""
@@ -245,11 +269,19 @@ class OpenProjectClient:
         Returns:
             Dict: Created work package data
         """
+        project_id = data.get("project")
+        if project_id:
+            form_endpoint = f"/projects/{project_id}/work_packages/form"
+            create_endpoint = f"/projects/{project_id}/work_packages"
+        else:
+            form_endpoint = "/work_packages/form"
+            create_endpoint = "/work_packages"
+
         # Prepare initial payload for form
         form_payload = {"_links": {}}
 
         # Set required links
-        if "project" in data:
+        if not project_id and "project" in data:
             form_payload["_links"]["project"] = {
                 "href": f"/api/v3/projects/{data['project']}"
             }
@@ -261,7 +293,7 @@ class OpenProjectClient:
             form_payload["subject"] = data["subject"]
 
         # Get form with initial payload
-        form = await self._request("POST", "/work_packages/form", form_payload)
+        form = await self._request("POST", form_endpoint, form_payload)
 
         # Use form payload and add additional fields
         payload = form.get("payload", form_payload)
@@ -282,6 +314,18 @@ class OpenProjectClient:
             payload["_links"]["assignee"] = {
                 "href": f"/api/v3/users/{data['assignee_id']}"
             }
+        if "version_id" in data:
+            if "_links" not in payload:
+                payload["_links"] = {}
+            payload["_links"]["version"] = {
+                "href": f"/api/v3/versions/{data['version_id']}"
+            }
+        if "version_id" in data:
+            if "_links" not in payload:
+                payload["_links"] = {}
+            payload["_links"]["version"] = {
+                "href": f"/api/v3/versions/{data['version_id']}"
+            }
 
         # Add date fields (ISO 8601 format: YYYY-MM-DD)
         if "startDate" in data:
@@ -292,7 +336,7 @@ class OpenProjectClient:
             payload["date"] = data["date"]
 
         # Create work package
-        return await self._request("POST", "/work_packages", payload)
+        return await self._request("POST", create_endpoint, payload)
 
     async def get_types(self, project_id: Optional[int] = None) -> Dict:
         """
@@ -426,17 +470,73 @@ class OpenProjectClient:
 
         return result
 
-    async def get_work_package(self, work_package_id: int) -> Dict:
+    async def get_documents(
+        self,
+        offset: Optional[int] = None,
+        page_size: Optional[int] = None,
+        sort_by: Optional[str] = None,
+    ) -> Dict:
+        """
+        Retrieve documents.
+
+        Args:
+            offset: Page number inside the requested collection
+            page_size: Number of elements to display per page
+            sort_by: JSON sort criteria (e.g. [[\"created_at\", \"asc\"]])
+
+        Returns:
+            Dict: API response containing documents
+        """
+        endpoint = "/documents"
+        query_params = []
+        if offset is not None:
+            query_params.append(f"offset={offset}")
+        if page_size is not None:
+            query_params.append(f"pageSize={page_size}")
+        if sort_by:
+            query_params.append(f"sortBy={quote(sort_by)}")
+        if query_params:
+            endpoint += "?" + "&".join(query_params)
+
+        result = await self._request("GET", endpoint)
+
+        # Ensure proper response structure
+        if "_embedded" not in result:
+            result["_embedded"] = {"elements": []}
+        elif "elements" not in result.get("_embedded", {}):
+            result["_embedded"]["elements"] = []
+
+        return result
+
+    async def get_document(self, document_id: int) -> Dict:
+        """
+        Retrieve a specific document by ID.
+
+        Args:
+            document_id: The document ID
+
+        Returns:
+            Dict: Document data
+        """
+        return await self._request("GET", f"/documents/{document_id}")
+
+    async def get_work_package(
+        self, work_package_id: int, timestamps: Optional[str] = None
+    ) -> Dict:
         """
         Retrieve a specific work package by ID.
 
         Args:
             work_package_id: The work package ID
+            timestamps: Optional baseline comparison timestamps (comma-separated)
 
         Returns:
             Dict: Work package data
         """
-        return await self._request("GET", f"/work_packages/{work_package_id}")
+        endpoint = f"/work_packages/{work_package_id}"
+        if timestamps:
+            endpoint += f"?timestamps={quote(timestamps)}"
+        return await self._request("GET", endpoint)
 
     async def update_work_package(self, work_package_id: int, data: Dict) -> Dict:
         """
@@ -482,6 +582,12 @@ class OpenProjectClient:
             payload["_links"]["assignee"] = {
                 "href": f"/api/v3/users/{data['assignee_id']}"
             }
+        if "version_id" in data:
+            if "_links" not in payload:
+                payload["_links"] = {}
+            payload["_links"]["version"] = {
+                "href": f"/api/v3/versions/{data['version_id']}"
+            }
         if "percentage_done" in data:
             payload["percentageDone"] = data["percentage_done"]
 
@@ -493,8 +599,15 @@ class OpenProjectClient:
         if "date" in data:
             payload["date"] = data["date"]
 
+        form = await self._request(
+            "POST", f"/work_packages/{work_package_id}/form", payload
+        )
+        final_payload = form.get("payload", payload)
+        if "lockVersion" not in final_payload:
+            final_payload["lockVersion"] = payload["lockVersion"]
+
         return await self._request(
-            "PATCH", f"/work_packages/{work_package_id}", payload
+            "PATCH", f"/work_packages/{work_package_id}", final_payload
         )
 
     async def delete_work_package(self, work_package_id: int) -> bool:
@@ -619,29 +732,19 @@ class OpenProjectClient:
     async def get_time_entry_activities(self) -> Dict:
         """
         Retrieve available time entry activities.
-        
-        Note: OpenProject API v3 doesn't have a dedicated activities endpoint.
-        This method returns a mock response with common activity types.
 
         Returns:
-            Dict: Mock response with common time entry activities
+            Dict: API response containing activities
         """
-        # OpenProject doesn't expose activities via API v3
-        # Return common activity types as fallback
-        return {
-            "_embedded": {
-                "elements": [
-                    {"id": 1, "name": "Management", "default": False},
-                    {"id": 2, "name": "Specification", "default": False},
-                    {"id": 3, "name": "Development", "default": True},
-                    {"id": 4, "name": "Testing", "default": False},
-                    {"id": 5, "name": "Support", "default": False},
-                    {"id": 6, "name": "Other", "default": False}
-                ]
-            },
-            "total": 6,
-            "count": 6
-        }
+        result = await self._request("GET", "/time_entries/activities")
+
+        # Ensure proper response structure
+        if "_embedded" not in result:
+            result["_embedded"] = {"elements": []}
+        elif "elements" not in result.get("_embedded", {}):
+            result["_embedded"]["elements"] = []
+
+        return result
 
     async def get_versions(self, project_id: Optional[int] = None) -> Dict:
         """
@@ -1038,14 +1141,9 @@ class OpenProjectClient:
         Returns:
             Dict: Created relation data
         """
-        # Prepare payload
+        # Prepare payload per RelationWriteModel (spec): type + _links.to
         payload = {"_links": {}}
 
-        # Set required fields
-        if "from_id" in data:
-            payload["_links"]["from"] = {
-                "href": f"/api/v3/work_packages/{data['from_id']}"
-            }
         if "to_id" in data:
             payload["_links"]["to"] = {"href": f"/api/v3/work_packages/{data['to_id']}"}
         if "relation_type" in data:
@@ -1055,7 +1153,13 @@ class OpenProjectClient:
         if "description" in data:
             payload["description"] = data["description"]
 
-        return await self._request("POST", "/relations", payload)
+        from_id = data.get("from_id")
+        if not from_id:
+            raise Exception("from_id is required to create a work package relation")
+
+        return await self._request(
+            "POST", f"/work_packages/{from_id}/relations", payload
+        )
 
     async def list_work_package_relations(self, filters: Optional[str] = None) -> Dict:
         """

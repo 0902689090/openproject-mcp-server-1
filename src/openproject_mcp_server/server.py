@@ -256,16 +256,17 @@ async def list_work_packages(
 
 
 @mcp.tool()
-async def get_work_package(work_package_id: int) -> str:
+async def view_work_package(work_package_id: int, timestamps: Optional[str] = None) -> str:
     """
-    Get detailed information about a specific work package
+    View detailed information about a specific work package
     
     Args:
         work_package_id: The work package ID
+        timestamps: Optional baseline comparison timestamps (comma-separated)
     """
     try:
         c = await get_client()
-        wp = await c.get_work_package(work_package_id)
+        wp = await c.get_work_package(work_package_id, timestamps=timestamps)
         
         text = f"📝 #{wp['id']} - **{wp['subject']}**\n\n"
         
@@ -287,6 +288,28 @@ async def get_work_package(work_package_id: int) -> str:
             project = wp["_embedded"]["project"].get("name", "N/A")
             text += f"- **Project**: {project}\n"
         
+        if wp.get("_embedded", {}).get("version"):
+            version = wp["_embedded"]["version"].get("name", "N/A")
+            text += f"- **Version**: {version}\n"
+        
+        if wp.get("percentageDone") is not None:
+            text += f"- **Progress**: {wp['percentageDone']}%\n"
+        
+        if wp.get("startDate"):
+            text += f"- **Start Date**: {wp['startDate']}\n"
+        
+        if wp.get("dueDate"):
+            text += f"- **Due Date**: {wp['dueDate']}\n"
+        
+        if wp.get("date"):
+            text += f"- **Date**: {wp['date']}\n"
+        
+        if wp.get("createdAt"):
+            text += f"- **Created**: {wp['createdAt']}\n"
+        
+        if wp.get("updatedAt"):
+            text += f"- **Updated**: {wp['updatedAt']}\n"
+        
         if wp.get("description", {}).get("raw"):
             text += f"\n**Description**:\n{wp['description']['raw']}\n"
         
@@ -303,7 +326,11 @@ async def create_work_package(
     type_id: int,
     description: Optional[str] = None,
     priority_id: Optional[int] = None,
-    assignee_id: Optional[int] = None
+    assignee_id: Optional[int] = None,
+    version_id: Optional[int] = None,
+    start_date: Optional[str] = None,
+    due_date: Optional[str] = None,
+    date: Optional[str] = None
 ) -> str:
     """
     Create a new work package
@@ -315,6 +342,10 @@ async def create_work_package(
         description: Description in Markdown format (optional)
         priority_id: Priority ID (optional)
         assignee_id: User ID to assign to (optional)
+        version_id: Version/milestone ID (optional)
+        start_date: Start date in YYYY-MM-DD format (optional)
+        due_date: Due date in YYYY-MM-DD format (optional)
+        date: Date in YYYY-MM-DD format (optional)
     """
     try:
         c = await get_client()
@@ -330,6 +361,14 @@ async def create_work_package(
             data["priority_id"] = priority_id
         if assignee_id:
             data["assignee_id"] = assignee_id
+        if version_id:
+            data["version_id"] = version_id
+        if start_date:
+            data["startDate"] = start_date
+        if due_date:
+            data["dueDate"] = due_date
+        if date:
+            data["date"] = date
         
         wp = await c.create_work_package(data)
         return f"✅ Work package created: #{wp['id']} - **{wp['subject']}**"
@@ -347,7 +386,11 @@ async def update_work_package(
     status_id: Optional[int] = None,
     priority_id: Optional[int] = None,
     assignee_id: Optional[int] = None,
-    percentage_done: Optional[int] = None
+    percentage_done: Optional[int] = None,
+    version_id: Optional[int] = None,
+    start_date: Optional[str] = None,
+    due_date: Optional[str] = None,
+    date: Optional[str] = None
 ) -> str:
     """
     Update an existing work package
@@ -361,6 +404,10 @@ async def update_work_package(
         priority_id: Priority ID (optional)
         assignee_id: User ID to assign to (optional)
         percentage_done: Completion percentage 0-100 (optional)
+        version_id: Version/milestone ID (optional)
+        start_date: Start date in YYYY-MM-DD format (optional)
+        due_date: Due date in YYYY-MM-DD format (optional)
+        date: Date in YYYY-MM-DD format (optional)
     """
     try:
         c = await get_client()
@@ -379,6 +426,14 @@ async def update_work_package(
             data["assignee_id"] = assignee_id
         if percentage_done is not None:
             data["percentage_done"] = percentage_done
+        if version_id is not None:
+            data["version_id"] = version_id
+        if start_date is not None:
+            data["startDate"] = start_date
+        if due_date is not None:
+            data["dueDate"] = due_date
+        if date is not None:
+            data["date"] = date
         
         wp = await c.update_work_package(work_package_id, data)
         return f"✅ Work package updated: #{wp['id']} - **{wp['subject']}**"
@@ -403,6 +458,100 @@ async def delete_work_package(work_package_id: int) -> str:
         logger.error(f"Error deleting work package: {e}", exc_info=True)
         return f"❌ Error: {str(e)}"
 
+
+# ============================================================================
+# MCP Tools - Documents
+# ============================================================================
+
+@mcp.tool()
+async def list_documents(
+    offset: Optional[int] = None,
+    page_size: Optional[int] = None,
+    sort_by: Optional[str] = None
+) -> str:
+    """
+    List documents with optional pagination and sorting
+    
+    Args:
+        offset: Page number inside the requested collection (optional)
+        page_size: Number of elements to display per page (optional)
+        sort_by: JSON sort criteria (e.g. [["created_at", "asc"]]) (optional)
+    """
+    try:
+        c = await get_client()
+        result = await c.get_documents(
+            offset=offset,
+            page_size=page_size,
+            sort_by=sort_by
+        )
+        
+        documents = result.get("_embedded", {}).get("elements", [])
+        
+        if not documents:
+            return "No documents found."
+        
+        total = result.get("total", len(documents))
+        text = f"📄 Documents ({len(documents)} of {total}):\n\n"
+        
+        for doc in documents:
+            text += f"#{doc['id']} - **{doc.get('title', 'Untitled')}**\n"
+            
+            if doc.get("description"):
+                # Truncate long descriptions
+                desc = doc['description']
+                if len(desc) > 100:
+                    desc = desc[:100] + "..."
+                text += f"   {desc}\n"
+            
+            if doc.get("createdAt"):
+                text += f"   Created: {doc['createdAt']}\n"
+            
+            text += "\n"
+        
+        return text
+    except Exception as e:
+        logger.error(f"Error listing documents: {e}", exc_info=True)
+        return f"❌ Error: {str(e)}"
+
+
+@mcp.tool()
+async def get_document(document_id: int) -> str:
+    """
+    Get detailed information about a specific document
+    
+    Args:
+        document_id: The document ID
+    """
+    try:
+        c = await get_client()
+        doc = await c.get_document(document_id)
+        
+        text = f"📄 Document #{doc['id']}\n\n"
+        text += f"- **Title**: {doc.get('title', 'Untitled')}\n"
+        
+        if doc.get("description"):
+            text += f"- **Description**: {doc['description']}\n"
+        
+        if doc.get("createdAt"):
+            text += f"- **Created**: {doc['createdAt']}\n"
+        
+        if doc.get("updatedAt"):
+            text += f"- **Updated**: {doc['updatedAt']}\n"
+        
+        # Include project information if available
+        project = doc.get("_embedded", {}).get("project", {})
+        if project:
+            text += f"- **Project**: {project.get('name', 'N/A')} (ID: {project.get('id', 'N/A')})\n"
+        
+        return text
+    except Exception as e:
+        logger.error(f"Error getting document: {e}", exc_info=True)
+        return f"❌ Error: {str(e)}"
+
+
+# ============================================================================
+# MCP Tools - Types & Reference Data
+# ============================================================================
 
 @mcp.tool()
 async def list_types(project_id: Optional[int] = None) -> str:
